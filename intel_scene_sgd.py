@@ -6,7 +6,7 @@ import argparse, time, logging
 import numpy as np
 import mxnet as mx
 
-from mxnet import gluon, nd, optimizer
+from mxnet import gluon, nd, optimizer, init
 from mxnet import autograd as ag
 from mxnet.gluon import nn
 from mxnet.gluon.data.vision import transforms
@@ -22,7 +22,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a model for image classification.')
     parser.add_argument('--batch-size', type=int, default=160,
                         help='training batch size per device (CPU/GPU).')
-    parser.add_argument('--num-gpus', type=int, default=1,
+    parser.add_argument('--num-gpus', type=int, default=2,
                         help='number of gpus to use.')
     parser.add_argument('--model', type=str, default='resnet18_v1',
                         help='model to use. options are resnet and wrn. default is resnet.')
@@ -30,10 +30,10 @@ def parse_args():
                         help='number of preprocessing workers')
     parser.add_argument('--num-epochs', type=int, default=120,
                         help='number of training epochs.')
-    parser.add_argument('--lr', type=float, default=0.1,
-                        help='learning rate. default is 0.1.')
-    parser.add_argument('--momentum', type=float, default=0.9,
-                        help='momentum value for optimizer, default is 0.9.')
+    parser.add_argument('--lr', type=float, default=1e-1,
+                        help='learning rate. default is 1e-1.')
+    parser.add_argument('--momentum', type=float, default=0.5,
+                        help='momentum value for optimizer, default is 0.5.')
     parser.add_argument('--wd', type=float, default=1e-3,
                         help='weight decay rate. default is 1e-3.')
     parser.add_argument('--lr-decay', type=float, default=0.1,
@@ -67,18 +67,18 @@ def main():
     num_gpus = opt.num_gpus
     batch_size *= max(1, num_gpus)
     context = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    # context = [mx.gpu(1)]
     num_workers = opt.num_workers
 
     lr_decay = opt.lr_decay
     lr_decay_epoch = [int(i) for i in opt.lr_decay_epoch.split(',')] + [np.inf]
 
     model_name = opt.model
-    if model_name.startswith('cifar_wideresnet'):
-        kwargs = {'classes': classes,
-                'drop_rate': opt.drop_rate}
-    else:
-        kwargs = {'classes': classes}
-    net = get_model(model_name, **kwargs)
+    net = get_model(model_name, pretrained=True)
+    with net.name_scope():
+        net.output = nn.Dense(classes)
+    net.output.initialize(init.Xavier())
+    net.collect_params().reset_ctx(context)
     if opt.resume_from:
         net.load_parameters(opt.resume_from, ctx = context)
     sgd_optimizer = optimizer.SGD(learning_rate=opt.lr, wd=opt.wd, momentum=opt.momentum)
